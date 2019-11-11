@@ -1,5 +1,7 @@
 import argparse
 import asyncio
+import trio_asyncio
+import trio
 import sys
 import urllib.request
 
@@ -12,6 +14,9 @@ from libp2p.typing import TProtocol
 
 PROTOCOL_ID = TProtocol("/chat/1.0.0")
 MAX_READ_LEN = 2 ** 32 - 1
+
+
+stopped_event = trio.Event()
 
 
 async def read_data(stream: INetStream) -> None:
@@ -59,6 +64,8 @@ async def run(port: int, destination: str, localhost: bool) -> None:
             + " on another console."
         )
         print("Waiting for incoming connection...")
+        await asyncio.sleep(5)
+        stopped_event.set()
 
     else:  # its the client
         maddr = multiaddr.Multiaddr(destination)
@@ -112,14 +119,24 @@ def main() -> None:
     if not args.port:
         raise RuntimeError("was not able to determine a local port")
 
-    loop = asyncio.get_event_loop()
-    try:
-        asyncio.ensure_future(run(args.port, args.destination, args.localhost))
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        loop.close()
+    # loop = asyncio.get_event_loop()
+    # try:
+    #     asyncio.ensure_future(run(args.port, args.destination, args.localhost))
+    #     loop.run_forever()
+    # except KeyboardInterrupt:
+    #     pass
+    # finally:
+    #     loop.close()
+
+    trio.run(async_main_wrapper, *(args.port, args.destination, args.localhost))
+
+
+async def async_main_wrapper(*args):
+    async with trio_asyncio.open_loop() as loop:
+        assert loop == asyncio.get_event_loop()
+        await trio_asyncio.run_asyncio(run, *args)
+
+        await stopped_event.wait()
 
 
 if __name__ == "__main__":
